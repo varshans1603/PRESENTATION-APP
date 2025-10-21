@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gesture & Voice Presentation – FINAL</title>
+    <style>
+        body {margin:0;padding:20px;background:#001f3f;color:#fff;font-family:Arial,sans-serif;display:flex;flex-direction:column;align-items:center;min-height:100vh;}
+        #container{position:relative;width:80vw;height:60vh;border:2px solid #00ffff;overflow:hidden;background:#fff;margin:10px 0;}
+        #pdf-canvas,#annotation-canvas{position:absolute;top:0;left:0;width:100%;height:100%;}
+        #annotation-canvas{z-index:1;}
+        #video{position:absolute;bottom:10px;right:10px;width:200px;height:150px;border:2px solid #00ffff;transform:scaleX(-1);z-index:2;border-radius:8px;}
+        #upload{margin:10px;padding:10px 20px;background:#00ffff;color:#001f3f;border:none;border-radius:6px;cursor:pointer;font-weight:bold;}
+        #upload:hover{background:#00cccc;}
+        #status{margin:10px;font-size:16px;font-weight:bold;color:#aaffaa;text-align:center;}
+        #debug{background:#333;padding:10px;border-radius:5px;margin:10px;width:80vw;max-height:150px;overflow-y:auto;font-family:monospace;font-size:12px;}
+        .button-group{display:flex;flex-wrap:wrap;gap:10px;justify-content:center;margin:10px 0;}
+        button{padding:8px 16px;background:#00ffff;color:#001f3f;border:none;border-radius:4px;cursor:pointer;font-weight:bold;}
+        button:hover{background:#00cccc;}
+        button:disabled{background:#666;cursor:not-allowed;}
+        #laser-pointer{position:absolute;width:16px;height:16px;background:red;border:3px solid #ff6666;border-radius:50%;z-index:3;pointer-events:none;display:none;transform:translate(-50%,-50%);box-shadow:0 0 15px 5px rgba(255,0,0,.7);}
+    </style>
+
+    <!-- Libraries -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.6.347/pdf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4/hands.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+</head>
+<body>
+
+    <input type="file" id="upload" accept=".pdf"/>
+    <p>Upload a PDF to start</p>
+
+    <div class="button-group">
+        <button onclick="nextPage()">Next Slide</button>
+        <button onclick="prevPage()">Previous Slide</button>
+        <button onclick="startDrawMode()">Draw Mode</button>
+        <button onclick="startHighlightMode()">Highlight</button>
+        <button onclick="startEraseMode()">Erase Mode</button>
+        <button onclick="stopMode()">Stop Mode</button>
+        <button onclick="toggleLaser()">Toggle Laser</button>
+        <button onclick="clearDebug()">Clear Debug</button>
+    </div>
+
+    <div id="container">
+        <canvas id="pdf-canvas"></canvas>
+        <canvas id="annotation-canvas"></canvas>
+        <div id="laser-pointer"></div>
+    </div>
+
+    <video id="video" autoplay playsinline style="display:none;"></video>
+    <div id="status">Status: Ready</div>
+    <div id="debug"></div>
+
+    <script>
+        // ──────────────────────────────────────────────────────────────
+        // Debug
+        // ──────────────────────────────────────────────────────────────
+        function debugLog(msg){const d=document.getElementById('debug');const t=new Date().toLocaleTimeString();d.innerHTML+=`<div>[${t}] ${msg}</div>`;d.scrollTop=d.scrollHeight;console.log(msg);}
+        function clearDebug(){document.getElementById('debug').innerHTML='';}
+
+        // ──────────────────────────────────────────────────────────────
+        // PDF
+        // ──────────────────────────────────────────────────────────────
+        let pdfDoc=null,pageNum=1,pageRendering=false,pageNumPending=null;
+        const pdfCanvas=document.getElementById('pdf-canvas');
+        const annCanvas=document.getElementById('annotation-canvas');
+        const ctx=pdfCanvas.getContext('2d');
+        const annCtx=annCanvas.getContext('2d');
+        let scale=1;
+
+        // ──────────────────────────────────────────────────────────────
+        // State
+        // ──────────────────────────────────────────────────────────────
+        let mode='none';                 // none | draw | highlight | erase | laser
+        let isDrawing=false;
+        let lastX=0,lastY=0;
+        const laser=document.getElementById('laser-pointer');
+        let cameraStarted=false;
+
+        // ──────────────────────────────────────────────────────────────
+        // Button helpers
+        // ──────────────────────────────────────────────────────────────
+        function nextPage(){if(pdfDoc && pageNum<pdfDoc.numPages){pageNum++;renderPage(pageNum);speak('Next');}}
+        function prevPage(){if(pdfDoc && pageNum>1){pageNum--;renderPage(pageNum);speak('Previous');}}
+        function startDrawMode(){mode='draw';speak('Draw');debugLog('Button: Draw mode');updateStatus();}
+        function startHighlightMode(){mode='highlight';speak('Highlight');debugLog('Button: Highlight mode');updateStatus();}
+        function startEraseMode(){mode='erase';speak('Erase');debugLog('Button: Erase mode');updateStatus();}
+        function stopMode(){mode='none';clearAnnotations();laser.style.display='none';speak('Stopped');debugLog('Button: Stop');updateStatus();}
+        function toggleLaser(){mode=mode==='laser'?'none':'laser';laser.style.display=mode==='laser'?'block':'none';speak(mode==='laser'?'Laser on':'Laser off');debugLog('Button: Laser '+mode);updateStatus();}
+
+        // ──────────────────────────────────────────────────────────────
+        // Upload
+        // ──────────────────────────────────────────────────────────────
+        document.getElementById('upload').addEventListener('change',async e=>{
+            const f=e.target.files[0];
+            if(!f||f.type!=='application/pdf'){alert('PDF only');return;}
+            debugLog(`Loading ${f.name}`);
+            const data=await f.arrayBuffer();
+            pdfDoc=await pdfjsLib.getDocument({data}).promise;
+            pageNum=1;
+            renderPage(pageNum);
+            setupAnnotationCanvas();
+            speak('PDF loaded');
+        });
+
+        function renderPage(n){
+            if(!pdfDoc) return;
+            pageRendering=true;
+            pdfDoc.getPage(n).then(p=>{
+                const vp=p.getViewport({scale});
+                pdfCanvas.width=annCanvas.width=vp.width;
+                pdfCanvas.height=annCanvas.height=vp.height;
+                p.render({canvasContext:ctx,viewport:vp}).promise.then(()=>{pageRendering=false;if(pageNumPending!==null){renderPage(pageNumPending);pageNumPending=null;}});
+            });
+            updateStatus();
+        }
+
+        function updateStatus(){
+            document.getElementById('status').textContent=
+                `Page ${pdfDoc?pageNum+'/'+pdfDoc.numPages:'?'} | Mode: ${mode} | Camera: ${cameraStarted?'ON':'OFF'}`;
+        }
+
+        // ──────────────────────────────────────────────────────────────
+        // Mouse fallback
+        // ──────────────────────────────────────────────────────────────
+        function setupAnnotationCanvas(){
+            const start=e=>{if(['draw','highlight','erase'].includes(mode)) startDrawing(e);};
+            const move=e=>{if(isDrawing) drawLine(e);};
+            const end=()=>{isDrawing=false;};
+            annCanvas.addEventListener('pointerdown',start);
+            annCanvas.addEventListener('pointermove',move);
+            annCanvas.addEventListener('pointerup',end);
+            annCanvas.addEventListener('pointerleave',end);
+        }
+
+        function startDrawing(e){isDrawing=true;[lastX,lastY]=[e.offsetX,e.offsetY];}
+        function drawLine(e){
+            if(!isDrawing) return;
+            annCtx.beginPath();
+            annCtx.moveTo(lastX,lastY);
+            annCtx.lineTo(e.offsetX,e.offsetY);
+            [lastX,lastY]=[e.offsetX,e.offsetY];
+            if(mode==='draw'){annCtx.strokeStyle='red';annCtx.lineWidth=3;annCtx.globalAlpha=1;}
+            else if(mode==='highlight'){annCtx.strokeStyle='yellow';annCtx.lineWidth=18;annCtx.globalAlpha=0.6;}
+            else if(mode==='erase'){annCtx.globalCompositeOperation='destination-out';annCtx.lineWidth=35;}
+            annCtx.stroke();
+            annCtx.globalCompositeOperation='source-over';
+        }
+        function clearAnnotations(){annCtx.clearRect(0,0,annCanvas.width,annCanvas.height);}
+
+        // ──────────────────────────────────────────────────────────────
+        // Camera & MediaPipe
+        // ──────────────────────────────────────────────────────────────
+        const video=document.getElementById('video');
+        let hands,camera;
+
+        function startCamera(){
+            debugLog('Starting camera...');
+            hands=new Hands({locateFile:f=>`https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4/${f}`});
+            hands.setOptions({maxNumHands:1,modelComplexity:0,minDetectionConfidence:0.5,minTrackingConfidence:0.5});
+            hands.onResults(onHandResults);
+            camera=new Camera(video,{onFrame:async()=>{await hands.send({image:video});},width:640,height:480});
+            camera.start().then(()=>{cameraStarted=true;video.style.display='block';debugLog('Camera OK');updateStatus();})
+                     .catch(e=>{debugLog('Camera error: '+e);});
+        }
+        window.addEventListener('load',()=>setTimeout(startCamera,800));
+
+        // ──────────────────────────────────────────────────────────────
+        // Gesture detection (steady-hand + pinch fix)
+        // ──────────────────────────────────────────────────────────────
+        let lastNav=0; const NAV_COOLDOWN=800;
+        let candidateGesture=null, candidateStart=0; const STABLE_MS=300;
+
+        function detectGesture(lm){
+            if(!lm||lm.length<21) return 'none';
+            const tip=i=>lm[i];
+            const wrist=lm[0];
+
+            // ---- OPEN HAND (stop) ----
+            const open = tip(8).y<lm[6].y && tip(12).y<lm[10].y && tip(16).y<lm[14].y && tip(20).y<lm[18].y;
+            if(open) return 'open_hand';
+
+            // ---- INDEX ONLY (navigation / draw start) ----
+            const idxUp = tip(8).y<lm[6].y;
+            const othersDown = tip(12).y>lm[10].y && tip(16).y>lm[14].y && tip(20).y>lm[18].y;
+            if(idxUp && othersDown){
+                const ix=tip(8).x;
+                if(ix>wrist.x+0.18) return 'point_right';
+                if(ix<wrist.x-0.18) return 'point_left';
+                return 'index_up';
+            }
+
+            // ---- PINCH (thumb-index distance) ----
+            const pinchDist=Math.hypot(tip(4).x-tip(8).x,tip(4).y-tip(8).y);
+            if(pinchDist<0.07) return 'pinch';
+
+            // ---- FIST ----
+            if(tip(8).y>lm[6].y && tip(12).y>lm[10].y && tip(16).y>lm[14].y && tip(20).y>lm[18].y) return 'fist';
+
+            return 'none';
+        }
+
+        // ──────────────────────────────────────────────────────────────
+        // Gesture handler (stable detection)
+        // ──────────────────────────────────────────────────────────────
+        function onHandResults(res){
+            if(!res.multiHandLandmarks?.length){laser.style.display='none';isDrawing=false;return;}
+            const lm=res.multiHandLandmarks[0];
+            const g=detectGesture(lm);
+            const now=performance.now();
+
+            debugLog(`Gesture: ${g}`);
+
+            // ---- OPEN HAND → STOP ----
+            if(g==='open_hand' && mode!=='none'){
+                mode='none';clearAnnotations();laser.style.display='none';speak('Stopped');updateStatus();return;
+            }
+
+            // ---- MODE = NONE : navigation + stable mode start ----
+            if(mode==='none'){
+                // navigation
+                if(g==='point_right' && now-lastNav>NAV_COOLDOWN){nextPage();lastNav=now;}
+                if(g==='point_left' && now-lastNav>NAV_COOLDOWN){prevPage();lastNav=now;}
+
+                // stable mode start
+                if(g===candidateGesture){
+                    if(now-candidateStart>STABLE_MS){
+                        if(g==='index_up'){mode='draw';speak('Draw');}
+                        else if(g==='pinch'){mode='highlight';speak('Highlight');}
+                        else if(g==='fist'){mode='erase';speak('Erase');}
+                        candidateGesture=null;updateStatus();
+                    }
+                }else{
+                    candidateGesture=g;candidateStart=now;
+                }
+            }
+
+            // ---- DRAWING (any mode) ----
+            if(['draw','highlight','erase'].includes(mode) && lm[8]){
+                const x=(1-lm[8].x)*annCanvas.width;
+                const y=lm[8].y*annCanvas.height;
+                if(isDrawing){
+                    annCtx.beginPath();annCtx.moveTo(lastX,lastY);annCtx.lineTo(x,y);
+                    lastX=x;lastY=y;
+                    if(mode==='draw'){annCtx.strokeStyle='red';annCtx.lineWidth=3;annCtx.globalAlpha=1;}
+                    else if(mode==='highlight'){annCtx.strokeStyle='yellow';annCtx.lineWidth=18;annCtx.globalAlpha=0.6;}
+                    else if(mode==='erase'){annCtx.globalCompositeOperation='destination-out';annCtx.lineWidth=35;}
+                    annCtx.stroke();annCtx.globalCompositeOperation='source-over';
+                }else{isDrawing=true;lastX=x;lastY=y;}
+            }else{isDrawing=false;}
+
+            // ---- LASER ----
+            const thumbUp=lm[4].x>lm[3].x;
+            if(mode==='none' && g==='index_up' && thumbUp){mode='laser';speak('Laser');}
+            if(mode==='laser' && lm[8]){
+                const px=lm[8].x*annCanvas.width;
+                const py=lm[8].y*annCanvas.height;
+                laser.style.left=`${px}px`;laser.style.top=`${py}px`;laser.style.display='block';
+            }else if(mode!=='laser'){laser.style.display='none';}
+
+            updateStatus();
+        }
+
+        // ──────────────────────────────────────────────────────────────
+        // Voice
+        // ──────────────────────────────────────────────────────────────
+        const SpeechRecognition=window.SpeechRecognition||window.webkitSpeechRecognition;
+        if(SpeechRecognition){
+            const rec=new SpeechRecognition();rec.continuous=true;rec.interimResults=false;rec.lang='en-US';
+            rec.onresult=e=>{const cmd=e.results[e.results.length-1][0].transcript.trim().toLowerCase();handleVoice(cmd);}
+            rec.onerror=e=>debugLog('Voice error: '+e.error);
+            rec.start();
+        }
+        function handleVoice(c){
+            debugLog('Voice: '+c);
+            if(c.includes('next')||c.includes('right')) nextPage();
+            else if(c.includes('previous')||c.includes('left')||c.includes('back')) prevPage();
+            else if(c.includes('draw')||c.includes('pen')) startDrawMode();
+            else if(c.includes('highlight')||c.includes('marker')) startHighlightMode();
+            else if(c.includes('erase')||c.includes('clear')) startEraseMode();
+            else if(c.includes('stop')||c.includes('exit')) stopMode();
+            else if(c.includes('laser')) toggleLaser();
+        }
+
+        // ──────────────────────────────────────────────────────────────
+        // Speech
+        // ──────────────────────────────────────────────────────────────
+        function speak(t){const u=new SpeechSynthesisUtterance(t);u.rate=1.6;window.speechSynthesis.speak(u);}
+
+        // ──────────────────────────────────────────────────────────────
+        // PDF.js worker
+        // ──────────────────────────────────────────────────────────────
+        pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.6.347/pdf.worker.min.js';
+
+        // Init
+        updateStatus();debugLog('App ready');
+    </script>
+</body>
+</html>

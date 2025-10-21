@@ -1,0 +1,420 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gesture & Voice Controlled Presentation App</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #001f3f;
+            color: white;
+            font-family: Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+        }
+        #container {
+            position: relative;
+            width: 80vw;
+            height: 80vh;
+            border: 1px solid #00ffff;
+            overflow: hidden;
+            background-color: #fff;
+        }
+        #display-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            border: 2px solid red;
+        }
+        #annotation-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 1;
+        }
+        #video {
+            position: absolute;
+            bottom: 10px;
+            right: 10px;
+            width: 200px;
+            height: 150px;
+            border: 1px solid #00ffff;
+            transform: scaleX(-1);
+        }
+        #upload {
+            margin: 20px;
+            padding: 10px;
+            background-color: #00ffff;
+            color: #001f3f;
+            border: none;
+            cursor: pointer;
+        }
+        #status {
+            margin: 10px;
+            font-size: 18px;
+        }
+        #laser-pointer {
+            position: absolute;
+            width: 10px;
+            height: 10px;
+            background-color: red;
+            border-radius: 50%;
+            z-index: 2;
+            pointer-events: none;
+            display: none;
+        }
+    </style>
+    <!-- Load pdf.js from reliable cdnjs CDN -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.6.347/pdf.min.js"></script>
+</head>
+<body>
+    <input type="file" id="upload" accept=".pdf" />
+    <p>Upload a PDF file (PPT/PPTX not supported in this prototype).</p>
+    <div id="container">
+        <canvas id="display-canvas"></canvas>
+        <canvas id="annotation-canvas"></canvas>
+        <div id="laser-pointer"></div>
+    </div>
+    <video id="video"></video>
+    <div id="status">Status: Ready</div>
+
+    <script>
+        // Wait for DOM and pdf.js to load
+        document.addEventListener('DOMContentLoaded', function() {
+            // Check if pdfjsLib is available
+            if (typeof pdfjsLib === 'undefined') {
+                console.error('pdf.js failed to load from CDN');
+                document.getElementById('status').textContent = 'Error: pdf.js library not loaded. Check internet connection.';
+                return;
+            }
+            // Set the worker source
+            pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.6.347/pdf.worker.min.js';
+            console.log('pdf.js loaded successfully');
+
+            let arrayBuffer = null;
+            let pageImages = [];
+            let pageNum = 1;
+            let totalPages = 0;
+            let pageRendering = false;
+            let pageNumPending = null;
+            const displayCanvas = document.getElementById('display-canvas');
+            const annotationCanvas = document.getElementById('annotation-canvas');
+            const dispCtx = displayCanvas.getContext('2d');
+            const annCtx = annotationCanvas.getContext('2d');
+            annCtx.globalAlpha = 1.0;
+            let scale = 1.5;
+
+            let mode = 'none';
+            let isDrawing = false;
+            let lastX = 0;
+            let lastY = 0;
+
+            const laserPointer = document.getElementById('laser-pointer');
+
+            document.getElementById('upload').addEventListener('change', (e) => {
+                const file = e.target.files[0];
+                if (!file) {
+                    console.log('No file selected');
+                    alert('Please select a file.');
+                    document.getElementById('status').textContent = 'Error: No file selected';
+                    return;
+                }
+                console.log('File:', file.name, file.type, file.size);
+
+                if (file.type !== 'application/pdf') {
+                    console.log('Invalid file type:', file.type);
+                    alert('Please upload a valid PDF file.');
+                    document.getElementById('status').textContent = 'Error: Invalid file type';
+                    return;
+                }
+
+                const reader = new FileReader();
+                reader.onload = async (event) => {
+                    try {
+                        arrayBuffer = event.target.result;
+                        console.log('File arrayBuffer size:', arrayBuffer.byteLength);
+                        if (arrayBuffer.byteLength === 0) {
+                            alert('File is empty or unreadable.');
+                            document.getElementById('status').textContent = 'Error: Empty file';
+                            return;
+                        }
+                        await convertPagesToImages();
+                        renderPage(pageNum);
+                        setupAnnotationCanvas();
+                        document.getElementById('status').textContent = `Loaded PDF with ${totalPages} pages`;
+                    } catch (err) {
+                        console.error('Processing error:', err);
+                        alert('Error processing file. Please try another PDF.');
+                        document.getElementById('status').textContent = 'Error: File processing failed';
+                    }
+                };
+                reader.onerror = (err) => {
+                    console.error('FileReader error:', err);
+                    alert('Error reading file. Please try another PDF.');
+                    document.getElementById('status').textContent = 'Error: FileReader failed';
+                };
+                reader.readAsArrayBuffer(file);
+            });
+
+            async function convertPagesToImages() {
+                pageImages = [];
+                const pdf = await pdfjsLib.getDocument({data: arrayBuffer}).promise;
+                totalPages = pdf.numPages;
+                const tempCanvas = document.createElement('canvas');
+                const tempCtx = tempCanvas.getContext('2d');
+
+                for (let i = 1; i <= totalPages; i++) {
+                    const page = await pdf.getPage(i);
+                    const viewport = page.getViewport({scale: scale});
+                    tempCanvas.width = viewport.width;
+                    tempCanvas.height = viewport.height;
+                    await page.render({canvasContext: tempCtx, viewport: viewport}).promise;
+                    pageImages[i - 1] = tempCanvas.toDataURL('image/png');
+                    console.log(`Converted page ${i} to image`);
+                }
+                console.log('Converted pages to images:', pageImages.length);
+            }
+
+            function renderPage(num) {
+                if (!pageImages[num - 1]) {
+                    console.error('No image for page', num);
+                    document.getElementById('status').textContent = `Error: No image for page ${num}`;
+                    return;
+                }
+                pageRendering = true;
+                const img = new Image();
+                img.src = pageImages[num - 1];
+                img.onload = () => {
+                    const container = document.getElementById('container');
+                    displayCanvas.width = container.clientWidth;
+                    displayCanvas.height = container.clientHeight;
+                    annotationCanvas.width = container.clientWidth;
+                    annotationCanvas.height = container.clientHeight;
+                    dispCtx.drawImage(img, 0, 0, displayCanvas.width, displayCanvas.height);
+                    annCtx.clearRect(0, 0, annotationCanvas.width, annotationCanvas.height);
+                    console.log('Rendering page', num, 'Canvas size:', displayCanvas.width, 'x', displayCanvas.height);
+                    document.getElementById('status').textContent = `Rendering page: ${num} / ${totalPages}`;
+                    pageRendering = false;
+                    if (pageNumPending !== null) {
+                        renderPage(pageNumPending);
+                        pageNumPending = null;
+                    }
+                };
+                img.onerror = () => {
+                    console.error('Failed to render page', num);
+                    document.getElementById('status').textContent = `Error: Failed to render page ${num}`;
+                    pageRendering = false;
+                };
+            }
+
+            function queueRenderPage(num) {
+                if (pageRendering) {
+                    pageNumPending = num;
+                } else {
+                    renderPage(num);
+                }
+            }
+
+            function nextPage() {
+                if (pageNum >= totalPages) return;
+                pageNum++;
+                queueRenderPage(pageNum);
+            }
+
+            function prevPage() {
+                if (pageNum <= 1) return;
+                pageNum--;
+                queueRenderPage(pageNum);
+            }
+
+            function setupAnnotationCanvas() {
+                annotationCanvas.addEventListener('mousedown', startDrawing);
+                annotationCanvas.addEventListener('mousemove', draw);
+                annotationCanvas.addEventListener('mouseup', stopDrawing);
+                annotationCanvas.addEventListener('mouseout', stopDrawing);
+            }
+
+            function startDrawing(e) {
+                if (mode !== 'draw' && mode !== 'highlight' && mode !== 'erase') return;
+                isDrawing = true;
+                [lastX, lastY] = [e.offsetX, e.offsetY];
+            }
+
+            function draw(e) {
+                if (!isDrawing) return;
+                annCtx.beginPath();
+                annCtx.moveTo(lastX, lastY);
+                annCtx.lineTo(e.offsetX, e.offsetY);
+                [lastX, lastY] = [e.offsetX, e.offsetY];
+
+                if (mode === 'draw') {
+                    annCtx.strokeStyle = 'red';
+                    annCtx.lineWidth = 2;
+                    annCtx.globalAlpha = 1.0;
+                } else if (mode === 'highlight') {
+                    annCtx.strokeStyle = 'yellow';
+                    annCtx.lineWidth = 10;
+                    annCtx.globalAlpha = 0.5;
+                } else if (mode === 'erase') {
+                    annCtx.globalCompositeOperation = 'destination-out';
+                    annCtx.lineWidth = 20;
+                }
+                annCtx.stroke();
+                annCtx.globalCompositeOperation = 'source-over';
+            }
+
+            function stopDrawing() {
+                isDrawing = false;
+            }
+
+            const video = document.getElementById('video');
+            const hands = new Hands({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4/${file}`});
+            hands.setOptions({
+                maxNumHands: 1,
+                modelComplexity: 1,
+                minDetectionConfidence: 0.5,
+                minTrackingConfidence: 0.5  // Fixed from = to :
+            });
+            hands.onResults(onHandResults);
+
+            const camera = new Camera(video, {
+                onFrame: async () => {
+                    await hands.send({image: video});
+                },
+                width: 640,
+                height: 480
+            });
+            camera.start();
+
+            function onHandResults(results) {
+                if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+                    const landmarks = results.multiHandLandmarks[0];
+                    const gesture = detectGesture(landmarks);
+                    document.getElementById('status').textContent = `Gesture: ${gesture} | Mode: ${mode}`;
+                    handleGesture(gesture, landmarks);
+                } else {
+                    laserPointer.style.display = 'none';
+                }
+            }
+
+            function detectGesture(landmarks) {
+                const thumbTip = landmarks[4].y;
+                const indexTip = landmarks[8].y;
+                const middleTip = landmarks[12].y;
+                const ringTip = landmarks[16].y;
+                const pinkyTip = landmarks[20].y;
+                const indexMCP = landmarks[5].y;
+                const middleMCP = landmarks[9].y;
+
+                if (indexTip < indexMCP && middleTip < middleMCP && ringTip < landmarks[13].y && pinkyTip < landmarks[17].y && thumbTip < landmarks[1].y) return 'open_hand';
+                if (indexTip < landmarks[6].y && middleTip > landmarks[10].y && ringTip > landmarks[14].y && pinkyTip > landmarks[18].y) {
+                    const wrist = landmarks[0];
+                    if (landmarks[8].x < wrist.x) return 'point_left';
+                    if (landmarks[8].x > wrist.x) return 'point_right';
+                    return 'index_up';
+                }
+                const thumbIndexDist = Math.sqrt((landmarks[4].x - landmarks[8].x)**2 + (landmarks[4].y - landmarks[8].y)**2);
+                if (thumbIndexDist < 0.05) return 'pinch';
+                if (indexTip > landmarks[6].y && middleTip > landmarks[10].y && ringTip > landmarks[14].y && pinkyTip > landmarks[18].y && thumbTip > landmarks[2].y) return 'fist';
+                return 'none';
+            }
+
+            let lastGesture = 'none';
+            function handleGesture(gesture, landmarks) {
+                if (gesture === lastGesture) return;
+                lastGesture = gesture;
+
+                switch (gesture) {
+                    case 'index_up': mode = 'draw'; speak('Draw mode activated'); break;
+                    case 'pinch': mode = 'highlight'; speak('Highlight mode activated'); break;
+                    case 'fist': mode = 'erase'; speak('Erase mode activated'); break;
+                    case 'open_hand': mode = 'none'; speak('Mode exited'); break;
+                    case 'point_left': prevPage(); speak('Previous slide'); break;
+                    case 'point_right': nextPage(); speak('Next slide'); break;
+                }
+
+                if (mode === 'laser' && gesture === 'index_up' && landmarks[4].x > landmarks[3].x) {
+                    mode = 'laser';
+                    speak('Laser pointer activated');
+                }
+                if (mode === 'laser') {
+                    const pointerX = landmarks[8].x * annotationCanvas.width;
+                    const pointerY = landmarks[8].y * annotationCanvas.height;
+                    laserPointer.style.left = `${pointerX}px`;
+                    laserPointer.style.top = `${pointerY}px`;
+                    laserPointer.style.display = 'block';
+                } else {
+                    laserPointer.style.display = 'none';
+                }
+
+                if ((mode === 'draw' || mode === 'highlight' || mode === 'erase') && landmarks[8]) {
+                    const x = (1 - landmarks[8].x) * annotationCanvas.width;
+                    const y = landmarks[8].y * annotationCanvas.height;
+                    if (isDrawing) {
+                        annCtx.beginPath();
+                        annCtx.moveTo(lastX, lastY);
+                        annCtx.lineTo(x, y);
+                        lastX = x;
+                        lastY = y;
+                        if (mode === 'draw') { annCtx.strokeStyle = 'red'; annCtx.lineWidth = 2; annCtx.globalAlpha = 1.0; }
+                        else if (mode === 'highlight') { annCtx.strokeStyle = 'yellow'; annCtx.lineWidth = 10; annCtx.globalAlpha = 0.5; }
+                        else if (mode === 'erase') { annCtx.globalCompositeOperation = 'destination-out'; annCtx.lineWidth = 20; }
+                        annCtx.stroke();
+                        annCtx.globalCompositeOperation = 'source-over';
+                    } else {
+                        isDrawing = true;
+                        lastX = x;
+                        lastY = y;
+                    }
+                } else {
+                    isDrawing = false;
+                }
+            }
+
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            if (SpeechRecognition) {
+                const recognition = new SpeechRecognition();
+                recognition.continuous = true;
+                recognition.interimResults = false;
+                recognition.lang = 'en-US';
+                recognition.onresult = (event) => {
+                    const command = event.results[event.results.length - 1][0].transcript.toLowerCase().trim();
+                    handleVoiceCommand(command);
+                };
+                recognition.onerror = (event) => console.error('Speech recognition error', event);
+                recognition.start();
+            } else {
+                console.log('Web Speech API not supported');
+                document.getElementById('status').textContent = 'Warning: Voice commands not supported';
+            }
+
+            function handleVoiceCommand(command) {
+                document.getElementById('status').textContent = `Voice: ${command}`;
+                speak(`Command: ${command}`);
+                if (command.includes('next slide')) nextPage();
+                else if (command.includes('previous slide')) prevPage();
+                else if (command.includes('start drawing')) mode = 'draw';
+                else if (command.includes('highlight')) mode = 'highlight';
+                else if (command.includes('erase')) mode = 'erase';
+                else if (command.includes('exit') || command.includes('stop')) mode = 'none';
+            }
+
+            function speak(text) {
+                const utterance = new SpeechSynthesisUtterance(text);
+                window.speechSynthesis.speak(utterance);
+            }
+        });
+    </script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4/hands.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+</body>
+</html>
