@@ -1,420 +1,567 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Gesture & Voice Controlled Presentation App</title>
-    <style>
-        body {
-            margin: 0;
-            padding: 0;
-            background-color: #001f3f;
-            color: white;
-            font-family: Arial, sans-serif;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            height: 100vh;
-        }
-        #container {
-            position: relative;
-            width: 80vw;
-            height: 80vh;
-            border: 1px solid #00ffff;
-            overflow: hidden;
-            background-color: #fff;
-        }
-        #display-canvas {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            border: 2px solid red;
-        }
-        #annotation-canvas {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            z-index: 1;
-        }
-        #video {
-            position: absolute;
-            bottom: 10px;
-            right: 10px;
-            width: 200px;
-            height: 150px;
-            border: 1px solid #00ffff;
-            transform: scaleX(-1);
-        }
-        #upload {
-            margin: 20px;
-            padding: 10px;
-            background-color: #00ffff;
-            color: #001f3f;
-            border: none;
-            cursor: pointer;
-        }
-        #status {
-            margin: 10px;
-            font-size: 18px;
-        }
-        #laser-pointer {
-            position: absolute;
-            width: 10px;
-            height: 10px;
-            background-color: red;
-            border-radius: 50%;
-            z-index: 2;
-            pointer-events: none;
-            display: none;
-        }
-    </style>
-    <!-- Load pdf.js from reliable cdnjs CDN -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.6.347/pdf.min.js"></script>
+<meta charset="UTF-8">
+<title>Smart Presenter – Cyberpunk Edition</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+    :root {
+        --bg: #0a1a2f;
+        --card: #112240;
+        --glass: rgba(255, 255, 255, 0.08);
+        --accent: #00ffff;
+        --accent-hover: #00cccc;
+        --text: #e0f7fa;
+        --shadow: 0 8px 32px rgba(0, 255, 255, 0.2);
+        --border: 1px solid rgba(0, 255, 255, 0.3);
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+        background: var(--bg);
+        color: var(--text);
+        font-family: 'Segoe UI', Arial, sans-serif;
+        min-height: 100vh;
+        padding: 1.5rem;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        line-height: 1.6;
+    }
+
+    h1 {
+        font-size: 2rem;
+        margin: 1rem 0;
+        color: var(--accent);
+        text-shadow: 0 0 15px rgba(0, 255, 255, 0.5);
+    }
+
+    /* Upload Zone */
+    #upload-zone {
+        width: 90vw;
+        max-width: 500px;
+        height: 120px;
+        border: 2px dashed var(--accent);
+        border-radius: 16px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        margin: 1rem 0;
+        background: var(--glass);
+        backdrop-filter: blur(8px);
+        box-shadow: var(--shadow);
+    }
+    #upload-zone:hover {
+        background: rgba(0, 255, 255, 0.1);
+        border-color: var(--accent-hover);
+        transform: translateY(-2px);
+    }
+    #upload-zone.dragover {
+        background: rgba(0, 255, 255, 0.2);
+        border-style: solid;
+    }
+    #upload { display: none; }
+    #upload-label {
+        font-weight: bold;
+        font-size: 1.1rem;
+        color: var(--accent);
+    }
+
+    /* Controls */
+    .controls {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        justify-content: center;
+        margin: 1.5rem 0;
+        width: 100%;
+        max-width: 800px;
+    }
+    button {
+        padding: 12px 20px;
+        background: var(--glass);
+        color: var(--text);
+        border: var(--border);
+        border-radius: 12px;
+        font-weight: bold;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        min-width: 100px;
+        font-size: 0.95rem;
+        backdrop-filter: blur(8px);
+    }
+    button:hover {
+        background: rgba(0, 255, 255, 0.2);
+        transform: translateY(-2px);
+        box-shadow: var(--shadow);
+        border-color: var(--accent);
+    }
+    button.active {
+        background: #ff00ff;
+        color: white;
+        border: none;
+        box-shadow: 0 0 20px rgba(255, 0, 255, 0.6);
+    }
+    button:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
+
+    /* Status */
+    #status {
+        font-weight: bold;
+        font-size: 1.1rem;
+        text-align: center;
+        padding: 12px;
+        background: var(--glass);
+        border-radius: 12px;
+        width: 90vw;
+        max-width: 800px;
+        margin: 0.5rem 0;
+        color: var(--accent);
+        box-shadow: var(--shadow);
+        backdrop-filter: blur(8px);
+        border: var(--border);
+    }
+
+    /* Canvas Container */
+    #container {
+        position: relative;
+        width: 90vw;
+        max-width: 1000px;
+        height: 65vh;
+        border: 2px solid var(--accent);
+        border-radius: 16px;
+        overflow: hidden;
+        background: white;
+        margin: 1rem 0;
+        box-shadow: var(--shadow);
+    }
+    canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
+
+    /* Video Feed - FIXED: ALWAYS VISIBLE */
+    #video-container {
+        position: fixed !important;
+        bottom: 20px !important;
+        right: 20px !important;
+        width: 220px !important;
+        height: 165px !important;
+        border: 3px solid var(--accent) !important;
+        border-radius: 16px !important;
+        overflow: hidden !important;
+        box-shadow: var(--shadow) !important;
+        z-index: 999 !important;
+        display: block !important;
+        background: #000 !important;
+    }
+    #video {
+        width: 100% !important;
+        height: 100% !important;
+        transform: scaleX(-1) !important;
+        object-fit: cover !important;
+        border-radius: 12px !important;
+        display: block !important;
+    }
+
+    /* Laser */
+    #laser-pointer {
+        position: absolute;
+        width: 20px;
+        height: 20px;
+        background: red;
+        border: 4px solid #ff6666;
+        border-radius: 50%;
+        pointer-events: none;
+        display: none;
+        transform: translate(-50%, -50%);
+        box-shadow: 0 0 20px 8px rgba(255, 0, 0, 0.8);
+        z-index: 20;
+    }
+
+    /* Recognized Text */
+    #recognized-text {
+        position: absolute;
+        top: 16px;
+        left: 16px;
+        z-index: 15;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        pointer-events: none;
+    }
+    .rec-text {
+        background: rgba(0, 255, 0, 0.2);
+        color: #00ff00;
+        padding: 6px 12px;
+        border-radius: 8px;
+        font-size: 0.9rem;
+        font-weight: bold;
+        border: 1px solid #0f0;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+        backdrop-filter: blur(4px);
+    }
+
+    /* Debug Panel */
+    #debug-container {
+        width: 90vw;
+        max-width: 800px;
+        margin: 1.5rem 0;
+    }
+    #debug-header {
+        background: var(--glass);
+        padding: 12px;
+        border-radius: 12px 12px 0 0;
+        cursor: pointer;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        font-weight: bold;
+        color: var(--accent);
+        backdrop-filter: blur(8px);
+        border: var(--border);
+    }
+    #debug {
+        background: #000;
+        color: #0f0;
+        font-family: 'Courier New', monospace;
+        font-size: 0.85rem;
+        max-height: 150px;
+        overflow-y: auto;
+        padding: 12px;
+        border-radius: 0 0 12px 12px;
+        display: none;
+        border: var(--border);
+        border-top: none;
+    }
+    #debug.show { display: block; }
+
+    /* 🎯 USER GUIDE OVERLAY */
+    #user-guide {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100vw;
+        height: 100vh;
+        background: rgba(10, 26, 47, 0.95);
+        backdrop-filter: blur(20px);
+        z-index: 9999;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: 2rem;
+        opacity: 0;
+        visibility: hidden;
+        transition: all 0.5s ease;
+    }
+    #user-guide.show {
+        opacity: 1;
+        visibility: visible;
+    }
+    #guide-content {
+        max-width: 800px;
+        max-height: 80vh;
+        overflow-y: auto;
+        background: rgba(17, 34, 64, 0.9);
+        border: 2px solid rgba(0, 255, 255, 0.5);
+        border-radius: 20px;
+        padding: 2.5rem;
+        box-shadow: 0 20px 60px rgba(0, 255, 255, 0.3);
+    }
+    #guide-header {
+        text-align: center;
+        margin-bottom: 2rem;
+    }
+    #guide-header h1 {
+        font-size: 2.5rem;
+        background: linear-gradient(45deg, #00ffff, #ff00ff);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        margin: 0;
+        text-shadow: 0 0 30px rgba(0, 255, 255, 0.5);
+    }
+    .guide-section {
+        margin: 2rem 0;
+        padding: 1.5rem;
+        background: rgba(0, 255, 255, 0.1);
+        border-radius: 16px;
+        border-left: 5px solid var(--accent);
+    }
+    .guide-section h3 {
+        color: var(--accent);
+        font-size: 1.4rem;
+        margin-bottom: 1rem;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+    .guide-command {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 12px;
+        margin: 8px 0;
+        background: rgba(255, 255, 255, 0.05);
+        border-radius: 12px;
+        border: 1px solid rgba(0, 255, 255, 0.2);
+    }
+    .guide-command span:first-child {
+        font-weight: bold;
+        color: #00ff88;
+        background: rgba(0, 255, 136, 0.1);
+        padding: 6px 12px;
+        border-radius: 8px;
+    }
+    .guide-command span:last-child {
+        color: #ffaa00;
+        font-weight: bold;
+    }
+    .guide-btn {
+        padding: 15px 30px;
+        background: linear-gradient(45deg, #00ffff, #0088cc);
+        border: none;
+        border-radius: 12px;
+        color: white;
+        font-weight: bold;
+        font-size: 1.1rem;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        box-shadow: 0 8px 25px rgba(0, 255, 255, 0.4);
+    }
+    .guide-btn:hover {
+        transform: translateY(-3px);
+        box-shadow: 0 15px 35px rgba(0, 255, 255, 0.6);
+    }
+    .guide-shortcut {
+        background: rgba(255, 0, 255, 0.2);
+        color: #ff66ff;
+        padding: 4px 8px;
+        border-radius: 6px;
+        font-size: 0.9rem;
+        font-family: monospace;
+    }
+
+    /* Voice Status */
+    #voice-status {
+        position: fixed;
+        top: 20px;
+        left: 20px;
+        background: rgba(0,255,0,0.2);
+        color: #0f0;
+        padding: 10px 15px;
+        border-radius: 8px;
+        font-weight: bold;
+        z-index: 1000;
+        border: 1px solid #0f0;
+        display: none;
+    }
+
+    /* Responsive */
+    @media (max-width: 768px) {
+        h1 { font-size: 1.6rem; }
+        button { padding: 10px 16px; font-size: 0.9rem; }
+        #container { height: 55vh; }
+        #video-container { width: 160px; height: 120px; bottom: 15px; right: 15px; }
+        #guide-content { padding: 1.5rem; margin: 1rem; }
+        #guide-header h1 { font-size: 2rem; }
+        .guide-section { margin: 1rem 0; padding: 1rem; }
+    }
+</style>
 </head>
 <body>
-    <input type="file" id="upload" accept=".pdf" />
-    <p>Upload a PDF file (PPT/PPTX not supported in this prototype).</p>
-    <div id="container">
-        <canvas id="display-canvas"></canvas>
-        <canvas id="annotation-canvas"></canvas>
-        <div id="laser-pointer"></div>
+
+<h1>🧠 Smart Presenter</h1>
+
+<!-- Upload Zone -->
+<div id="upload-zone">
+    <input type="file" id="upload" accept=".pdf">
+    <label id="upload-label" for="upload">📁 Drop PDF or Click to Upload</label>
+</div>
+
+<!-- Mode Buttons -->
+<div class="controls">
+    <button data-mode="mouse" class="active">🖱️ Mouse</button>
+    <button data-mode="gesture">✋ Gesture</button>
+    <button data-mode="voice">🎤 Voice</button>
+</div>
+
+<!-- Mouse Tools -->
+<div class="controls" id="mouse-tools">
+    <button data-tool="draw" class="active">✏️ Draw</button>
+    <button data-tool="highlight">🔆 Highlight</button>
+    <button data-tool="erase">🗑️ Erase</button>
+    <button data-tool="laser">🔴 Laser</button>
+    <button data-tool="none">⏹️ Stop</button>
+</div>
+
+<!-- Navigation -->
+<div class="controls">
+    <button id="prev">⬅️ Prev</button>
+    <button id="next">➡️ Next</button>
+    <button id="clear">🗑️ Clear All</button>
+</div>
+
+<!-- Status -->
+<div id="status">Ready - Upload PDF to start</div>
+
+<!-- Canvas -->
+<div id="container">
+    <canvas id="pdf-canvas"></canvas>
+    <canvas id="annotation-canvas"></canvas>
+    <div id="laser-pointer"></div>
+    <div id="recognized-text"></div>
+</div>
+
+<!-- Video Feed -->
+<div id="video-container">
+    <video id="video" autoplay playsinline muted></video>
+</div>
+
+<!-- Voice Status -->
+<div id="voice-status"></div>
+
+<!-- 🎯 USER GUIDE OVERLAY -->
+<div id="user-guide">
+    <div id="guide-content">
+        <div id="guide-header">
+            <h1>🧠 Smart Presenter</h1>
+            <p style="color: #00ff88; font-size: 1.2rem; margin-top: 1rem;">
+                Voice • Gesture • Mouse • Laser
+            </p>
+        </div>
+        
+        <div class="guide-section">
+            <h3>🎤 VOICE COMMANDS</h3>
+            <div class="guide-command"><span>"next"</span><span>➡️ Next Slide</span></div>
+            <div class="guide-command"><span>"previous" / "back"</span><span>⬅️ Previous</span></div>
+            <div class="guide-command"><span>"page 2" / "page five"</span><span>📄 Go to Page #</span></div>
+            <div class="guide-command"><span>"draw hello world"</span><span>✍️ Write Text</span></div>
+            <div class="guide-command"><span>"stop"</span><span>✅ Stop Writing</span></div>
+            <div class="guide-command"><span>"clear"</span><span>🗑️ Erase All</span></div>
+        </div>
+        
+        <div class="guide-section">
+            <h3>✋ GESTURE CONTROL</h3>
+            <div style="text-align: center; font-size: 1.2rem; color: #ffaa00;">
+                👈 <strong>LEFT HAND</strong> = Next ➡️<br>
+                👉 <strong>RIGHT HAND</strong> = Previous ⬅️<br><br>
+                <small>Hold 2 seconds • Camera bottom-right</small>
+            </div>
+        </div>
+        
+        <div class="guide-section">
+            <h3>🖱️ MOUSE TOOLS</h3>
+            <div class="guide-command"><span>✏️ Draw</span><span>Red Pen</span></div>
+            <div class="guide-command"><span>🔆 Highlight</span><span>Yellow Marker</span></div>
+            <div class="guide-command"><span>🗑️ Erase</span><span>Clear Drawings</span></div>
+            <div class="guide-command"><span>🔴 Laser</span><span>Red Dot Pointer</span></div>
+        </div>
+        
+        <div style="text-align: center; margin-top: 2rem;">
+            <button class="guide-btn" onclick="closeUserGuide()">🚀 Start Presenting</button>
+            <p style="margin-top: 1rem; color: #888; font-size: 0.95rem;">
+                Press <span class="guide-shortcut">F1</span> anytime to show this guide
+            </p>
+        </div>
     </div>
-    <video id="video"></video>
-    <div id="status">Status: Ready</div>
+</div>
 
-    <script>
-        // Wait for DOM and pdf.js to load
-        document.addEventListener('DOMContentLoaded', function() {
-            // Check if pdfjsLib is available
-            if (typeof pdfjsLib === 'undefined') {
-                console.error('pdf.js failed to load from CDN');
-                document.getElementById('status').textContent = 'Error: pdf.js library not loaded. Check internet connection.';
-                return;
-            }
-            // Set the worker source
-            pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.6.347/pdf.worker.min.js';
-            console.log('pdf.js loaded successfully');
+<!-- Debug Panel -->
+<div id="debug-container">
+    <div id="debug-header" onclick="this.nextElementSibling.classList.toggle('show')">
+        🔍 Debug Console <span>▼</span>
+    </div>
+    <div id="debug"></div>
+</div>
 
-            let arrayBuffer = null;
-            let pageImages = [];
-            let pageNum = 1;
-            let totalPages = 0;
-            let pageRendering = false;
-            let pageNumPending = null;
-            const displayCanvas = document.getElementById('display-canvas');
-            const annotationCanvas = document.getElementById('annotation-canvas');
-            const dispCtx = displayCanvas.getContext('2d');
-            const annCtx = annotationCanvas.getContext('2d');
-            annCtx.globalAlpha = 1.0;
-            let scale = 1.5;
+<!-- HELPERS -->
+<script>
+window.debug = (msg) => {
+    const d = $('#debug');
+    const t = new Date().toLocaleTimeString();
+    d.innerHTML += `<div>[${t}] ${msg}</div>`;
+    d.scrollTop = d.scrollHeight;
+};
+window.toast = (msg, dur = 2000) => {
+    const t = document.createElement('div');
+    t.textContent = msg;
+    t.style.cssText = `
+        position:fixed; bottom:20px; left:50%; transform:translateX(-50%);
+        background:rgba(0,255,255,0.2); color:#0ff; padding:12px 24px;
+        border-radius:12px; font-weight:bold; z-index:1000;
+        backdrop-filter:blur(8px); border:1px solid #0ff;
+    `;
+    document.body.appendChild(t);
+    setTimeout(() => t.remove(), dur);
+};
+window.speak = (txt) => {
+    const u = new SpeechSynthesisUtterance(txt);
+    u.rate = 1.6;
+    speechSynthesis.speak(u);
+};
+window.$ = s => document.querySelector(s);
+window.$$ = s => [...document.querySelectorAll(s)];
 
-            let mode = 'none';
-            let isDrawing = false;
-            let lastX = 0;
-            let lastY = 0;
+// 🎯 USER GUIDE FUNCTIONS
+function showUserGuide() {
+    $('#user-guide').classList.add('show');
+    debug('🎯 User Guide Shown');
+}
+function closeUserGuide() {
+    $('#user-guide').classList.remove('show');
+    debug('🎯 User Guide Closed');
+}
+// Auto-show on first load
+if (!localStorage.getItem('guideSeen')) {
+    setTimeout(showUserGuide, 1000);
+    localStorage.setItem('guideSeen', 'true');
+}
+// F1 key to toggle guide
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'F1') {
+        e.preventDefault();
+        $('#user-guide').classList.toggle('show');
+    }
+});
+// Add guide button to controls
+const controls = $('.controls')[0];
+const guideBtn = document.createElement('button');
+guideBtn.textContent = '❓ Help';
+guideBtn.onclick = showUserGuide;
+controls.appendChild(guideBtn);
+</script>
 
-            const laserPointer = document.getElementById('laser-pointer');
+<!-- PDF.JS -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.6.347/pdf.min.js"></script>
+<script>
+pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.6.347/pdf.worker.min.js';
+debug('PDF.js loaded');
+</script>
 
-            document.getElementById('upload').addEventListener('change', (e) => {
-                const file = e.target.files[0];
-                if (!file) {
-                    console.log('No file selected');
-                    alert('Please select a file.');
-                    document.getElementById('status').textContent = 'Error: No file selected';
-                    return;
-                }
-                console.log('File:', file.name, file.type, file.size);
+<!-- DRAG & DROP UPLOAD -->
+<script>
+const zone = $('#upload-zone');
+const input = $('#upload');
+zone.addEventListener('click', () => input.click());
+zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('dragover'); });
+zone.addEventListener('dragleave', () => zone.classList.remove('dragover'));
+zone.addEventListener('drop', e => {
+    e.preventDefault();
+    zone.classList.remove('dragover');
+    const file = e.dataTransfer.files[0];
+    if (file && file.type === 'application/pdf') {
+        input.files = e.dataTransfer.files;
+        input.dispatchEvent(new Event('change'));
+    }
+});
+</script>
 
-                if (file.type !== 'application/pdf') {
-                    console.log('Invalid file type:', file.type);
-                    alert('Please upload a valid PDF file.');
-                    document.getElementById('status').textContent = 'Error: Invalid file type';
-                    return;
-                }
+<!-- MAIN APP -->
+<script type="module" src="./main.js"></script>
 
-                const reader = new FileReader();
-                reader.onload = async (event) => {
-                    try {
-                        arrayBuffer = event.target.result;
-                        console.log('File arrayBuffer size:', arrayBuffer.byteLength);
-                        if (arrayBuffer.byteLength === 0) {
-                            alert('File is empty or unreadable.');
-                            document.getElementById('status').textContent = 'Error: Empty file';
-                            return;
-                        }
-                        await convertPagesToImages();
-                        renderPage(pageNum);
-                        setupAnnotationCanvas();
-                        document.getElementById('status').textContent = `Loaded PDF with ${totalPages} pages`;
-                    } catch (err) {
-                        console.error('Processing error:', err);
-                        alert('Error processing file. Please try another PDF.');
-                        document.getElementById('status').textContent = 'Error: File processing failed';
-                    }
-                };
-                reader.onerror = (err) => {
-                    console.error('FileReader error:', err);
-                    alert('Error reading file. Please try another PDF.');
-                    document.getElementById('status').textContent = 'Error: FileReader failed';
-                };
-                reader.readAsArrayBuffer(file);
-            });
-
-            async function convertPagesToImages() {
-                pageImages = [];
-                const pdf = await pdfjsLib.getDocument({data: arrayBuffer}).promise;
-                totalPages = pdf.numPages;
-                const tempCanvas = document.createElement('canvas');
-                const tempCtx = tempCanvas.getContext('2d');
-
-                for (let i = 1; i <= totalPages; i++) {
-                    const page = await pdf.getPage(i);
-                    const viewport = page.getViewport({scale: scale});
-                    tempCanvas.width = viewport.width;
-                    tempCanvas.height = viewport.height;
-                    await page.render({canvasContext: tempCtx, viewport: viewport}).promise;
-                    pageImages[i - 1] = tempCanvas.toDataURL('image/png');
-                    console.log(`Converted page ${i} to image`);
-                }
-                console.log('Converted pages to images:', pageImages.length);
-            }
-
-            function renderPage(num) {
-                if (!pageImages[num - 1]) {
-                    console.error('No image for page', num);
-                    document.getElementById('status').textContent = `Error: No image for page ${num}`;
-                    return;
-                }
-                pageRendering = true;
-                const img = new Image();
-                img.src = pageImages[num - 1];
-                img.onload = () => {
-                    const container = document.getElementById('container');
-                    displayCanvas.width = container.clientWidth;
-                    displayCanvas.height = container.clientHeight;
-                    annotationCanvas.width = container.clientWidth;
-                    annotationCanvas.height = container.clientHeight;
-                    dispCtx.drawImage(img, 0, 0, displayCanvas.width, displayCanvas.height);
-                    annCtx.clearRect(0, 0, annotationCanvas.width, annotationCanvas.height);
-                    console.log('Rendering page', num, 'Canvas size:', displayCanvas.width, 'x', displayCanvas.height);
-                    document.getElementById('status').textContent = `Rendering page: ${num} / ${totalPages}`;
-                    pageRendering = false;
-                    if (pageNumPending !== null) {
-                        renderPage(pageNumPending);
-                        pageNumPending = null;
-                    }
-                };
-                img.onerror = () => {
-                    console.error('Failed to render page', num);
-                    document.getElementById('status').textContent = `Error: Failed to render page ${num}`;
-                    pageRendering = false;
-                };
-            }
-
-            function queueRenderPage(num) {
-                if (pageRendering) {
-                    pageNumPending = num;
-                } else {
-                    renderPage(num);
-                }
-            }
-
-            function nextPage() {
-                if (pageNum >= totalPages) return;
-                pageNum++;
-                queueRenderPage(pageNum);
-            }
-
-            function prevPage() {
-                if (pageNum <= 1) return;
-                pageNum--;
-                queueRenderPage(pageNum);
-            }
-
-            function setupAnnotationCanvas() {
-                annotationCanvas.addEventListener('mousedown', startDrawing);
-                annotationCanvas.addEventListener('mousemove', draw);
-                annotationCanvas.addEventListener('mouseup', stopDrawing);
-                annotationCanvas.addEventListener('mouseout', stopDrawing);
-            }
-
-            function startDrawing(e) {
-                if (mode !== 'draw' && mode !== 'highlight' && mode !== 'erase') return;
-                isDrawing = true;
-                [lastX, lastY] = [e.offsetX, e.offsetY];
-            }
-
-            function draw(e) {
-                if (!isDrawing) return;
-                annCtx.beginPath();
-                annCtx.moveTo(lastX, lastY);
-                annCtx.lineTo(e.offsetX, e.offsetY);
-                [lastX, lastY] = [e.offsetX, e.offsetY];
-
-                if (mode === 'draw') {
-                    annCtx.strokeStyle = 'red';
-                    annCtx.lineWidth = 2;
-                    annCtx.globalAlpha = 1.0;
-                } else if (mode === 'highlight') {
-                    annCtx.strokeStyle = 'yellow';
-                    annCtx.lineWidth = 10;
-                    annCtx.globalAlpha = 0.5;
-                } else if (mode === 'erase') {
-                    annCtx.globalCompositeOperation = 'destination-out';
-                    annCtx.lineWidth = 20;
-                }
-                annCtx.stroke();
-                annCtx.globalCompositeOperation = 'source-over';
-            }
-
-            function stopDrawing() {
-                isDrawing = false;
-            }
-
-            const video = document.getElementById('video');
-            const hands = new Hands({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4/${file}`});
-            hands.setOptions({
-                maxNumHands: 1,
-                modelComplexity: 1,
-                minDetectionConfidence: 0.5,
-                minTrackingConfidence: 0.5  // Fixed from = to :
-            });
-            hands.onResults(onHandResults);
-
-            const camera = new Camera(video, {
-                onFrame: async () => {
-                    await hands.send({image: video});
-                },
-                width: 640,
-                height: 480
-            });
-            camera.start();
-
-            function onHandResults(results) {
-                if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
-                    const landmarks = results.multiHandLandmarks[0];
-                    const gesture = detectGesture(landmarks);
-                    document.getElementById('status').textContent = `Gesture: ${gesture} | Mode: ${mode}`;
-                    handleGesture(gesture, landmarks);
-                } else {
-                    laserPointer.style.display = 'none';
-                }
-            }
-
-            function detectGesture(landmarks) {
-                const thumbTip = landmarks[4].y;
-                const indexTip = landmarks[8].y;
-                const middleTip = landmarks[12].y;
-                const ringTip = landmarks[16].y;
-                const pinkyTip = landmarks[20].y;
-                const indexMCP = landmarks[5].y;
-                const middleMCP = landmarks[9].y;
-
-                if (indexTip < indexMCP && middleTip < middleMCP && ringTip < landmarks[13].y && pinkyTip < landmarks[17].y && thumbTip < landmarks[1].y) return 'open_hand';
-                if (indexTip < landmarks[6].y && middleTip > landmarks[10].y && ringTip > landmarks[14].y && pinkyTip > landmarks[18].y) {
-                    const wrist = landmarks[0];
-                    if (landmarks[8].x < wrist.x) return 'point_left';
-                    if (landmarks[8].x > wrist.x) return 'point_right';
-                    return 'index_up';
-                }
-                const thumbIndexDist = Math.sqrt((landmarks[4].x - landmarks[8].x)**2 + (landmarks[4].y - landmarks[8].y)**2);
-                if (thumbIndexDist < 0.05) return 'pinch';
-                if (indexTip > landmarks[6].y && middleTip > landmarks[10].y && ringTip > landmarks[14].y && pinkyTip > landmarks[18].y && thumbTip > landmarks[2].y) return 'fist';
-                return 'none';
-            }
-
-            let lastGesture = 'none';
-            function handleGesture(gesture, landmarks) {
-                if (gesture === lastGesture) return;
-                lastGesture = gesture;
-
-                switch (gesture) {
-                    case 'index_up': mode = 'draw'; speak('Draw mode activated'); break;
-                    case 'pinch': mode = 'highlight'; speak('Highlight mode activated'); break;
-                    case 'fist': mode = 'erase'; speak('Erase mode activated'); break;
-                    case 'open_hand': mode = 'none'; speak('Mode exited'); break;
-                    case 'point_left': prevPage(); speak('Previous slide'); break;
-                    case 'point_right': nextPage(); speak('Next slide'); break;
-                }
-
-                if (mode === 'laser' && gesture === 'index_up' && landmarks[4].x > landmarks[3].x) {
-                    mode = 'laser';
-                    speak('Laser pointer activated');
-                }
-                if (mode === 'laser') {
-                    const pointerX = landmarks[8].x * annotationCanvas.width;
-                    const pointerY = landmarks[8].y * annotationCanvas.height;
-                    laserPointer.style.left = `${pointerX}px`;
-                    laserPointer.style.top = `${pointerY}px`;
-                    laserPointer.style.display = 'block';
-                } else {
-                    laserPointer.style.display = 'none';
-                }
-
-                if ((mode === 'draw' || mode === 'highlight' || mode === 'erase') && landmarks[8]) {
-                    const x = (1 - landmarks[8].x) * annotationCanvas.width;
-                    const y = landmarks[8].y * annotationCanvas.height;
-                    if (isDrawing) {
-                        annCtx.beginPath();
-                        annCtx.moveTo(lastX, lastY);
-                        annCtx.lineTo(x, y);
-                        lastX = x;
-                        lastY = y;
-                        if (mode === 'draw') { annCtx.strokeStyle = 'red'; annCtx.lineWidth = 2; annCtx.globalAlpha = 1.0; }
-                        else if (mode === 'highlight') { annCtx.strokeStyle = 'yellow'; annCtx.lineWidth = 10; annCtx.globalAlpha = 0.5; }
-                        else if (mode === 'erase') { annCtx.globalCompositeOperation = 'destination-out'; annCtx.lineWidth = 20; }
-                        annCtx.stroke();
-                        annCtx.globalCompositeOperation = 'source-over';
-                    } else {
-                        isDrawing = true;
-                        lastX = x;
-                        lastY = y;
-                    }
-                } else {
-                    isDrawing = false;
-                }
-            }
-
-            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-            if (SpeechRecognition) {
-                const recognition = new SpeechRecognition();
-                recognition.continuous = true;
-                recognition.interimResults = false;
-                recognition.lang = 'en-US';
-                recognition.onresult = (event) => {
-                    const command = event.results[event.results.length - 1][0].transcript.toLowerCase().trim();
-                    handleVoiceCommand(command);
-                };
-                recognition.onerror = (event) => console.error('Speech recognition error', event);
-                recognition.start();
-            } else {
-                console.log('Web Speech API not supported');
-                document.getElementById('status').textContent = 'Warning: Voice commands not supported';
-            }
-
-            function handleVoiceCommand(command) {
-                document.getElementById('status').textContent = `Voice: ${command}`;
-                speak(`Command: ${command}`);
-                if (command.includes('next slide')) nextPage();
-                else if (command.includes('previous slide')) prevPage();
-                else if (command.includes('start drawing')) mode = 'draw';
-                else if (command.includes('highlight')) mode = 'highlight';
-                else if (command.includes('erase')) mode = 'erase';
-                else if (command.includes('exit') || command.includes('stop')) mode = 'none';
-            }
-
-            function speak(text) {
-                const utterance = new SpeechSynthesisUtterance(text);
-                window.speechSynthesis.speak(utterance);
-            }
-        });
-    </script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4/hands.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
 </body>
 </html>

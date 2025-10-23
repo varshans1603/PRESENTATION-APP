@@ -2,41 +2,281 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Mouse | Gesture | Voice Presenter – FINAL VOICE FIXED</title>
+<title>Smart Presenter</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
-    body{margin:0;padding:20px;background:#001f3f;color:#fff;font-family:Arial,sans-serif;display:flex;flex-direction:column;align-items:center;min-height:100vh;}
-    #container{position:relative;width:80vw;height:60vh;border:2px solid #00ffff;overflow:hidden;background:#fff;margin:10px 0;}
-    #pdf-canvas,#annotation-canvas{position:absolute;top:0;left:0;width:100%;height:100%;}
-    #annotation-canvas{z-index:1;}
-    #video{position:absolute;bottom:10px;right:10px;width:200px;height:150px;border:2px solid #00ffff;transform:scaleX(-1);z-index:2;border-radius:8px;}
-    #upload{margin:10px;padding:10px 20px;background:#00ffff;color:#001f3f;border:none;border-radius:6px;cursor:pointer;font-weight:bold;}
-    #upload:hover{background:#00cccc;}
-    #status{margin:10px;font-size:16px;font-weight:bold;color:#aaffaa;text-align:center;}
-    .button-group{display:flex;flex-wrap:wrap;gap:10px;justify-content:center;margin:10px 0;}
-    button{padding:8px 16px;background:#00ffff;color:#001f3f;border:none;border-radius:4px;cursor:pointer;font-weight:bold;}
-    button:hover{background:#00cccc;}
-    button.active{background:#ff00ff;color:#fff;}
-    #laser-pointer{position:absolute;width:16px;height:16px;background:red;border:3px solid #ff6666;border-radius:50%;z-index:3;pointer-events:none;display:none;transform:translate(-50%,-50%);box-shadow:0 0 15px 5px rgba(255,0,0,.7);}
-    #debug{background:#222;padding:8px;border-radius:5px;margin:10px;width:80vw;max-height:120px;overflow-y:auto;font-family:monospace;font-size:12px;color:#0f0;}
-</style>
+    :root { 
+        --bg: #0a192f; 
+        --card: #112240; 
+        --glass: rgba(255,255,255,0.08); 
+        --accent: #00d4ff; 
+        --text: #e0f7fa; 
+        --shadow: 0 12px 32px rgba(0,212,255,0.15); 
+        --border: 1px solid rgba(0,212,255,0.25); 
+        --hover: rgba(0,212,255,0.15);
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { 
+        background: linear-gradient(135deg, #0a192f 0%, #16213e 100%); 
+        color: var(--text); 
+        font-family: 'Inter', 'Segoe UI', sans-serif; 
+        min-height: 100vh; 
+        padding: 1.5rem; 
+        display: flex; 
+        flex-direction: column; 
+        align-items: center; 
+        line-height: 1.6;
+    }
+    h1 { 
+        font-size: 2.4rem; 
+        margin: 1rem 0; 
+        color: var(--accent); 
+        text-shadow: 0 0 20px rgba(0,212,255,0.4); 
+        font-weight: 700;
+        letter-spacing: -0.5px;
+    }
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.6.347/pdf.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4/hands.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+    /* UPLOAD ZONE */
+    #upload-zone { 
+        width: 90vw; max-width:500px; height:130px; 
+        border:2px dashed var(--accent); border-radius:18px; 
+        display:flex; flex-direction:column; align-items:center; justify-content:center; 
+        cursor:pointer; margin:1.2rem 0; background:var(--glass); 
+        backdrop-filter:blur(12px); box-shadow:var(--shadow); 
+        transition: all 0.3s ease;
+    }
+    #upload-zone:hover { 
+        background:var(--hover); border-color:var(--accent); 
+        transform:translateY(-3px); box-shadow: 0 16px 40px rgba(0,212,255,0.2);
+    }
+    #upload-zone.dragover { background:rgba(0,212,255,0.25); border-style:solid; }
+    #upload { display:none; }
+    #upload-label { font-weight:600; font-size:1.15rem; color:var(--accent); }
+
+    /* CONTROLS */
+    .controls { 
+        display:flex; flex-wrap:wrap; gap:14px; justify-content:center; 
+        margin:1.6rem 0; max-width:900px; 
+    }
+    button { 
+        padding:13px 24px; background:var(--glass); color:var(--text); 
+        border:var(--border); border-radius:14px; font-weight:600; 
+        cursor:pointer; min-width:110px; font-size:0.98rem; 
+        backdrop-filter:blur(12px); transition: all 0.3s ease;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+    }
+    button:hover { 
+        background:var(--hover); transform:translateY(-3px); 
+        box-shadow: 0 8px 20px rgba(0,212,255,0.25); 
+    }
+    button.active { 
+        background: linear-gradient(135deg, #ff00ff, #ff3399); 
+        color:white; border:none; 
+        box-shadow:0 0 25px rgba(255,0,255,0.7); 
+        transform:scale(1.05);
+    }
+
+    /* STATUS */
+    #status { 
+        font-weight:600; font-size:1.15rem; text-align:center; 
+        padding:14px; background:var(--glass); border-radius:14px; 
+        max-width:900px; margin:0.6rem 0; color:var(--accent); 
+        box-shadow:var(--shadow); border:var(--border); 
+        backdrop-filter:blur(12px); 
+    }
+
+    /* CONTAINER */
+    #container { 
+        position:relative; width:90vw; max-width:1100px; height:68vh; 
+        border:2px solid var(--accent); border-radius:20px; 
+        overflow:hidden; background:white; margin:1.2rem 0; 
+        box-shadow: 0 20px 50px rgba(0,0,0,0.3), var(--shadow); 
+    }
+    canvas { position:absolute; top:0; left:0; width:100%; height:100%; }
+
+    /* VIDEO */
+    #video-container { 
+        position:fixed; bottom:22px; right:22px; width:240px; height:180px; 
+        border:3px solid var(--accent); border-radius:18px; 
+        overflow:hidden; box-shadow: 0 12px 30px rgba(0,0,0,0.4); 
+        z-index:999; background:#000; 
+    }
+    #video { width:100%; height:100%; transform:scaleX(-1); object-fit:cover; border-radius:14px; }
+
+    /* LASER */
+    #laser-pointer { 
+        position:absolute; width:22px; height:22px; background:#ff3333; 
+        border:4px solid #ff6666; border-radius:50%; pointer-events:none; 
+        display:none; transform:translate(-50%,-50%); 
+        box-shadow:0 0 25px 10px rgba(255,51,51,0.9); z-index:20; 
+    }
+
+    /* VOICE STATUS */
+    #voice-status { 
+        position:fixed; top:20px; left:20px; 
+        background:rgba(0,255,0,0.25); color:#0f0; 
+        padding:12px 18px; border-radius:10px; font-weight:600; 
+        z-index:1000; border:1px solid #0f0; display:none; 
+        box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+    }
+
+    /* DEBUG */
+    #debug-container { max-width:900px; margin:1.8rem 0; width:90vw; }
+    #debug-header { 
+        background:var(--glass); padding:14px; border-radius:14px 14px 0 0; 
+        cursor:pointer; display:flex; justify-content:space-between; 
+        font-weight:600; color:var(--accent); backdrop-filter:blur(12px); 
+        border:var(--border); box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+    }
+    #debug { 
+        background:#000; color:#0f0; font-family:'Courier New',monospace; 
+        font-size:0.88rem; max-height:160px; overflow-y:auto; 
+        padding:14px; border-radius:0 0 14px 14px; display:none; 
+        border:var(--border); border-top:none; 
+    }
+    #debug.show { display:block; }
+
+    /* HELP MODAL (F1) */
+    #help-modal {
+        position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+        background: rgba(10,25,47,0.95); backdrop-filter: blur(12px);
+        display: none; align-items: center; justify-content: center;
+        z-index: 10000; padding: 1rem;
+    }
+    #help-content {
+        background: var(--card); border: var(--border); border-radius: 20px;
+        padding: 2rem; max-width: 800px; width: 100%; max-height: 85vh;
+        overflow-y: auto; box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+        color: var(--text);
+    }
+    #help-close {
+        position: absolute; top: 1rem; right: 1.5rem;
+        background: none; border: none; color: var(--accent);
+        font-size: 2rem; cursor: pointer; font-weight: bold;
+    }
+    .help-section {
+        margin-bottom: 1.8rem;
+    }
+    .help-section h3 {
+        color: var(--accent); margin-bottom: 0.8rem; font-size: 1.3rem;
+        font-weight: 600; border-bottom: 1px solid rgba(0,212,255,0.3);
+        padding-bottom: 0.5rem;
+    }
+    .help-section ul {
+        margin-left: 1.2rem; margin-top: 0.8rem;
+    }
+    .help-section li {
+        margin: 0.6rem 0; position: relative; padding-left: 1.2rem;
+    }
+    .help-section li::before {
+        content: "→"; color: var(--accent); position: absolute; left: 0;
+    }
+    .help-section code {
+        background: rgba(0,212,255,0.15); color: #0ff; padding: 0.2rem 0.5rem;
+        border-radius: 6px; font-family: 'Courier New', monospace; font-size: 0.9rem;
+    }
+    .help-tip {
+        background: rgba(0,212,255,0.1); padding: 1rem; border-radius: 12px;
+        border-left: 4px solid var(--accent); font-style: italic; margin-top: 1.2rem;
+        color: #b8f3ff;
+    }
+
+    @media (max-width:768px) { 
+        #container { height:58vh; } 
+        #video-container { width:170px; height:128px; bottom:16px; right:16px; }
+        h1 { font-size: 2rem; }
+    }
+</style>
 </head>
 <body>
 
-<input type="file" id="upload" accept=".pdf"/>
-<p>Upload a PDF to start</p>
+<h1>Smart Presenter</h1>
 
-<div class="button-group">
-    <button onclick="setControlMode('mouse')"   id="btn-mouse">Mouse Mode</button>
-    <button onclick="setControlMode('gesture')" id="btn-gesture">Gesture Mode</button>
-    <button onclick="setControlMode('voice')"   id="btn-voice">Voice Mode</button>
-    <button onclick="nextPage()">Next</button>
-    <button onclick="prevPage()">Prev</button>
-    <button onclick="clearAnnotations()">Clear All</button>
+<!-- F1 HELP MODAL -->
+<div id="help-modal">
+    <div id="help-content">
+        <button id="help-close">×</button>
+        <h2 style="color:var(--accent); margin-bottom:1rem; text-align:center;">How to Use Smart Presenter</h2>
+        
+        <div class="help-section">
+            <h3>Mouse Mode (Default)</h3>
+            <ul>
+                <li><strong>Draw</strong>: Click + drag → red line</li>
+                <li><strong>Highlight</strong>: Click + drag → yellow glow</li>
+                <li><strong>Erase</strong>: Click + drag → erase annotations</li>
+                <li><strong>Laser</strong>: Click → red dot follows cursor</li>
+                <li><strong>Stop</strong>: Stops drawing/laser</li>
+                <li><strong>Prev / Next</strong>: Navigate slides</li>
+                <li><strong>Clear All</strong>: Remove all annotations</li>
+                <li><strong>Save PDF</strong>: Download with annotations</li>
+            </ul>
+        </div>
+
+        <div class="help-section">
+            <h3>Gesture Mode (Hand Tracking)</h3>
+            <p><strong>Allow camera</strong> → show hand in video feed</p>
+            <ul>
+                <li><strong>Index Finger Up</strong>: <strong>Draw</strong> (red line)</li>
+                <li><strong>Pinch (Thumb + Index)</strong>: <strong>Highlight</strong> (yellow)</li>
+                <li><strong>Fist</strong>: <strong>Erase</strong></li>
+                <li><strong>Two Fingers Up</strong>: <strong>Laser</strong> (red dot)</li>
+                <li><strong>Open Hand</strong>: <strong>Open Palm</strong> Stop all</li>
+                <li><strong>Swipe Right</strong>: Next page</li>
+                <li><strong>Swipe Left</strong>: Prev page</li>
+            </ul>
+            <p><em>Hold gesture for 0.5s to activate</em></p>
+        </div>
+
+        <div class="help-section">
+            <h3>Voice Mode (Speak Commands)</h3>
+            <p><strong>Allow mic</strong> → say commands clearly</p>
+            <ul>
+                <li><code>draw hello world</code> → writes paragraph</li>
+                <li><code>stop</code> / <code>done</code> → stops writing</li>
+                <li><code>next</code> → next page</li>
+                <li><code>previous</code> / <code>back</code> → prev page</li>
+                <li><code>page 5</code> → jump to page 5</li>
+                <li><code>last page</code> → last page</li>
+                <li><code>clear</code> → clear annotations</li>
+                <li><code>mouse</code> → switch to mouse</li>
+                <li><code>gesture</code> → switch to hand</li>
+            </ul>
+        </div>
+
+        <div class="help-tip">
+            <strong>Pro Tip:</strong> Press <kbd>F1</kbd> anytime for help • Use <strong>Save PDF</strong> to export your annotated presentation!
+        </div>
+    </div>
 </div>
+
+<div id="upload-zone">
+    <input type="file" id="upload" accept=".pdf">
+    <label id="upload-label" for="upload">Drop PDF or Click to Upload</label>
+</div>
+
+<div class="controls">
+    <button data-mode="mouse" class="active">Mouse</button>
+    <button data-mode="gesture">Gesture</button>
+    <button data-mode="voice">Voice</button>
+</div>
+
+<div class="controls" id="mouse-tools">
+    <button data-tool="draw" class="active">Draw</button>
+    <button data-tool="highlight">Highlight</button>
+    <button data-tool="erase">Erase</button>
+    <button data-tool="laser">Laser</button>
+    <button data-tool="none">Stop</button>
+</div>
+
+<div class="controls">
+    <button id="prev">Prev</button>
+    <button id="next">Next</button>
+    <button id="clear">Clear All</button>
+    <button id="save-pdf">Save PDF</button>
+</div>
+
+<div id="status">Ready • Press F1 for Help</div>
 
 <div id="container">
     <canvas id="pdf-canvas"></canvas>
@@ -44,374 +284,130 @@
     <div id="laser-pointer"></div>
 </div>
 
-<video id="video" autoplay playsinline style="display:none;"></video>
-<div id="status">Status: Ready</div>
-<div id="debug"></div>
+<div id="video-container"><video id="video" autoplay playsinline muted></video></div>
+<div id="voice-status">Listening...</div>
 
+<div id="debug-container">
+    <div id="debug-header" onclick="this.nextElementSibling.classList.toggle('show')">Debug Console</div>
+    <div id="debug"></div>
+</div>
+
+<!-- HELPERS -->
 <script>
-/* ────────────────────────────────────── DEBUG ────────────────────────────────────── */
-function debug(msg){
-    const d=document.getElementById('debug');
-    const t=new Date().toLocaleTimeString();
-    d.innerHTML+=`<div>[${t}] ${msg}</div>`;
-    d.scrollTop=d.scrollHeight;
-}
+window.$ = s => document.querySelector(s);
+window.$$ = s => [...document.querySelectorAll(s)];
 
-/* ────────────────────────────────────── PDF ────────────────────────────────────── */
-let pdfDoc=null,pageNum=1,pageRendering=false,pageNumPending=null;
-const pdfCanvas=document.getElementById('pdf-canvas');
-const annCanvas=document.getElementById('annotation-canvas');
-const ctx=pdfCanvas.getContext('2d');
-const annCtx=annCanvas.getContext('2d');
-let scale=1;
-let highlightMask=null;
+window.debug = (msg) => {
+    const d = $('#debug');
+    if (!d) return;
+    const t = new Date().toLocaleTimeString();
+    d.innerHTML += `<div>[${t}] ${msg}</div>`;
+    d.scrollTop = d.scrollHeight;
+};
 
-/* ────────────────────────────────────── STATE ────────────────────────────────────── */
-let controlMode='mouse';
-let drawMode='none';
-let isDrawing=false;
-let lastX=0,lastY=0;
-const laser=document.getElementById('laser-pointer');
-let cameraStarted=false;
-let speechRec=null;  // ← will be created only on user click
+window.toast = (msg, dur = 2200) => {
+    if (!document.body) return;
+    const t = document.createElement('div');
+    t.textContent = msg;
+    t.style.cssText = `position:fixed; bottom:24px; left:50%; transform:translateX(-50%);
+        background:rgba(0,212,255,0.25); color:#0ff; padding:14px 28px; border-radius:14px;
+        font-weight:600; z-index:1000; backdrop-filter:blur(12px); border:1px solid #0ff;
+        box-shadow: 0 8px 20px rgba(0,0,0,0.3);`;
+    document.body.appendChild(t);
+    setTimeout(() => t.remove(), dur);
+};
 
-/* ────────────────────────────────────── CONTROL MODE ────────────────────────────────────── */
-function setControlMode(m){
-    controlMode=m;
-    ['mouse','gesture','voice'].forEach(x=>document.getElementById('btn-'+x).classList.toggle('active',x===m));
-    debug(`Control mode → ${m.toUpperCase()}`);
+window.speak = (txt) => {
+    const u = new SpeechSynthesisUtterance(txt);
+    u.rate = 1.5;
+    speechSynthesis.speak(u);
+};
 
-    if(m==='gesture' && !cameraStarted) startCamera();
-    if(m==='voice') startVoiceRecognition();  // ← ONLY ON CLICK
-    else if(speechRec) { speechRec.stop(); speechRec=null; }
-
-    updateStatus();
-}
-
-/* ────────────────────────────────────── PAGE NAVIGATION ────────────────────────────────────── */
-function nextPage(){
-    if(!pdfDoc) return;
-    if(pageNum >= pdfDoc.numPages){
-        speak('Last page');
-        debug('Already on last page');
-        return;
+// F1 OPENS HELP
+document.addEventListener('keydown', e => {
+    if (e.key === 'F1') {
+        e.preventDefault();
+        $('#help-modal').style.display = 'flex';
     }
-    pageNum++;
-    renderPage(pageNum);
-    speak('Next');
-    debug('Next page');
-}
-function prevPage(){
-    if(!pdfDoc) return;
-    if(pageNum <= 1){
-        speak('First page');
-        debug('Already on first page');
-        return;
-    }
-    pageNum--;
-    renderPage(pageNum);
-    speak('Previous');
-    debug('Prev page');
-}
-
-/* ────────────────────────────────────── CLEAR ────────────────────────────────────── */
-function clearAnnotations(){
-    annCtx.clearRect(0,0,annCanvas.width,annCanvas.height);
-    highlightMask=null;
-    speak('Cleared');
-    debug('Annotations cleared');
-}
-
-/* ────────────────────────────────────── PDF UPLOAD ────────────────────────────────────── */
-document.getElementById('upload').addEventListener('change',async e=>{
-    const f=e.target.files[0];
-    if(!f||f.type!=='application/pdf'){alert('PDF only');return;}
-    const data=await f.arrayBuffer();
-    pdfDoc=await pdfjsLib.getDocument({data}).promise;
-    pageNum=1;
-    renderPage(pageNum);
-    setupAnnotationCanvas();
-    speak('PDF loaded');
-    debug(`PDF loaded – ${pdfDoc.numPages} pages`);
 });
-
-function renderPage(n){
-    if(!pdfDoc) return;
-    pageRendering=true;
-    pdfDoc.getPage(n).then(p=>{
-        const vp=p.getViewport({scale});
-        pdfCanvas.width=annCanvas.width=vp.width;
-        pdfCanvas.height=annCanvas.height=vp.height;
-        p.render({canvasContext:ctx,viewport:vp}).promise.then(()=>{
-            pageRendering=false;
-            if(pageNumPending!==null){renderPage(pageNumPending);pageNumPending=null;}
-        });
-        highlightMask=null;
-    });
-    updateStatus();
-}
-
-/* ────────────────────────────────────── STATUS ────────────────────────────────────── */
-function updateStatus(){
-    document.getElementById('status').textContent=
-        `Page ${pdfDoc?pageNum+'/'+pdfDoc.numPages:'?'} | Control: ${controlMode.toUpperCase()} | Draw: ${drawMode} | Camera: ${cameraStarted?'ON':'OFF'}`;
-}
-
-/* ────────────────────────────────────── MOUSE ────────────────────────────────────── */
-function setupAnnotationCanvas(){
-    const modes=['draw','highlight','erase','laser'];
-    const group=document.querySelector('.button-group');
-    modes.forEach(m=>{
-        if(!document.getElementById('mode-'+m)){
-            const btn=document.createElement('button');
-            btn.id='mode-'+m;
-            btn.textContent=m.charAt(0).toUpperCase()+m.slice(1);
-            btn.onclick=()=>{drawMode=m;speak(m);debug(`Mouse → ${m}`);};
-            group.appendChild(btn);
-        }
-    });
-
-    const start=e=>{
-        if(controlMode!=='mouse') return;
-        if(['draw','highlight','erase'].includes(drawMode)){
-            isDrawing=true;
-            const r=annCanvas.getBoundingClientRect();
-            lastX = e.clientX - r.left;
-            lastY = e.clientY - r.top;
-        }
-    };
-    const move=e=>{
-        if(!isDrawing || controlMode!=='mouse') return;
-        const r=annCanvas.getBoundingClientRect();
-        const x = e.clientX - r.left;
-        const y = e.clientY - r.top;
-        drawLine(x, y);
-        lastX = x; lastY = y;
-    };
-    const end=()=>{isDrawing=false;};
-
-    annCanvas.addEventListener('mousedown', start);
-    annCanvas.addEventListener('mousemove', move);
-    annCanvas.addEventListener('mouseup', end);
-    annCanvas.addEventListener('mouseleave', end);
-
-    annCanvas.addEventListener('dblclick',e=>{
-        if(controlMode!=='mouse') return;
-        const r=annCanvas.getBoundingClientRect();
-        const x=e.clientX-r.left;
-        if(x<r.width*0.3) prevPage();
-        else if(x>r.width*0.7) nextPage();
-    });
-
-    let laserHold=false;
-    annCanvas.addEventListener('contextmenu',e=>e.preventDefault());
-    annCanvas.addEventListener('mousedown',e=>{
-        if(e.button===2 && controlMode==='mouse'){
-            laserHold=true; drawMode='laser';
-        }
-    });
-    annCanvas.addEventListener('mouseup',e=>{
-        if(e.button===2){laserHold=false; drawMode='none'; laser.style.display='none';}
-    });
-    annCanvas.addEventListener('mousemove',e=>{
-        if(laserHold && controlMode==='mouse'){
-            const r=annCanvas.getBoundingClientRect();
-            laser.style.left=`${e.clientX-r.left}px`;
-            laser.style.top=`${e.clientY-r.top}px`;
-            laser.style.display='block';
-        }
-    });
-}
-
-/* ────────────────────────────────────── DRAW LINE ────────────────────────────────────── */
-function drawLine(x, y){
-    if(!isDrawing) return;
-
-    if(drawMode==='highlight'){
-        if(!highlightMask){
-            highlightMask=document.createElement('canvas');
-            highlightMask.width=annCanvas.width;
-            highlightMask.height=annCanvas.height;
-            const hctx=highlightMask.getContext('2d',{willReadFrequently:true});
-            hctx.fillStyle='black'; hctx.fillRect(0,0,annCanvas.width,annCanvas.height);
-        }
-        const hctx=highlightMask.getContext('2d');
-        const pixel=hctx.getImageData(x,y,1,1).data;
-        if(pixel[0]===0) return;
-        hctx.fillStyle='white';
-        hctx.beginPath(); hctx.ellipse(x,y,15,15,0,0,Math.PI*2); hctx.fill();
-    }
-
-    annCtx.beginPath();
-    annCtx.moveTo(lastX,lastY);
-    annCtx.lineTo(x,y);
-    annCtx.lineCap='round';
-    if(drawMode==='draw'){annCtx.strokeStyle='red';annCtx.lineWidth=4;annCtx.globalAlpha=1;}
-    else if(drawMode==='highlight'){annCtx.strokeStyle='yellow';annCtx.lineWidth=30;annCtx.globalAlpha=0.3;}
-    else if(drawMode==='erase'){annCtx.globalCompositeOperation='destination-out';annCtx.lineWidth=60;}
-    annCtx.stroke();
-    annCtx.globalCompositeOperation='source-over';
-}
-
-/* ────────────────────────────────────── GESTURE ────────────────────────────────────── */
-const video=document.getElementById('video');
-let hands,camera;
-function startCamera(){
-    hands=new Hands({locateFile:f=>`https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4/${f}`});
-    hands.setOptions({maxNumHands:1,modelComplexity:0,minDetectionConfidence:0.5,minTrackingConfidence:0.5});
-    hands.onResults(onHandResults);
-    camera=new Camera(video,{onFrame:async()=>{await hands.send({image:video});},width:640,height:480});
-    camera.start().then(()=>{cameraStarted=true;video.style.display='block';updateStatus();debug('Camera ON');})
-             .catch(e=>{debug('Camera error: '+e);});
-}
-
-let lastNav=0; const NAV_COOLDOWN=800;
-let candidate=null, candidateStart=0; const STABLE_MS=300;
-
-function detectGesture(lm){
-    if(!lm||lm.length<21) return 'none';
-    const tip=i=>lm[i];
-    const wrist=lm[0];
-
-    if(tip(8).y<lm[6].y && tip(12).y<lm[10].y && tip(16).y<lm[14].y && tip(20).y<lm[18].y) return 'open_hand';
-    const idxUp=tip(8).y<lm[6].y, midUp=tip(12).y<lm[10].y;
-    const othersDown=tip(16).y>lm[14].y && tip(20).y>lm[18].y;
-    if(idxUp && midUp && othersDown) return 'index_middle_up';
-    const idxOnly=tip(8).y<lm[6].y && tip(12).y>lm[10].y && tip(16).y>lm[14].y && tip(20).y>lm[18].y;
-    if(idxOnly){
-        const ix=tip(8).x;
-        if(ix > wrist.x + 0.18) return 'point_right';
-        if(ix < wrist.x - 0.18) return 'point_left';
-        return 'index_up';
-    }
-    const pinchDist=Math.hypot(tip(4).x-tip(8).x,tip(4).y-tip(8).y);
-    if(pinchDist<0.07) return 'pinch';
-    if(tip(8).y>lm[6].y && tip(12).y>lm[10].y && tip(16).y>lm[14].y && tip(20).y>lm[18].y) return 'fist';
-    return 'none';
-}
-
-function onHandResults(res){
-    if(controlMode!=='gesture') return;
-    if(!res.multiHandLandmarks?.length){laser.style.display='none';isDrawing=false;return;}
-    const lm=res.multiHandLandmarks[0];
-    const g=detectGesture(lm);
-    const now=performance.now();
-
-    if(g==='open_hand' && drawMode!=='none'){
-        drawMode='none';laser.style.display='none';speak('Stopped');debug('Gesture: open_hand → stop');updateStatus();return;
-    }
-
-    if(drawMode==='none'){
-        if(g==='point_right' && now-lastNav>NAV_COOLDOWN){nextPage();lastNav=now;}
-        if(g==='point_left' && now-lastNav>NAV_COOLDOWN){prevPage();lastNav=now;}
-    }
-
-    if(drawMode==='none'){
-        if(g===candidate){
-            if(now-candidateStart>STABLE_MS){
-                if(g==='index_up'){drawMode='draw';speak('Draw');debug('Gesture: index_up → draw');}
-                else if(g==='pinch'){drawMode='highlight';speak('Highlight');debug('Gesture: pinch → highlight');}
-                else if(g==='fist'){drawMode='erase';speak('Erase');debug('Gesture: fist → erase');}
-                else if(g==='index_middle_up'){drawMode='laser';speak('Laser');debug('Gesture: index+middle → laser');}
-                candidate=null;updateStatus();
-            }
-        }else{
-            candidate=g;candidateStart=now;
-        }
-    }
-
-    if(['draw','highlight','erase'].includes(drawMode) && lm[8]){
-        const x=(1-lm[8].x)*annCanvas.width;
-        const y=lm[8].y*annCanvas.height;
-        if(isDrawing){
-            annCtx.beginPath();annCtx.moveTo(lastX,lastY);annCtx.lineTo(x,y);
-            lastX=x;lastY=y;
-            annCtx.lineCap='round';
-            if(drawMode==='draw'){annCtx.strokeStyle='red';annCtx.lineWidth=4;annCtx.globalAlpha=1;}
-            else if(drawMode==='highlight'){annCtx.strokeStyle='yellow';annCtx.lineWidth=30;annCtx.globalAlpha=0.3;}
-            else if(drawMode==='erase'){annCtx.globalCompositeOperation='destination-out';annCtx.lineWidth=60;}
-            annCtx.stroke();annCtx.globalCompositeOperation='source-over';
-        }else{isDrawing=true;lastX=x;lastY=y;}
-    }else{isDrawing=false;}
-
-    if(drawMode==='laser' && lm[8]){
-        const px=lm[8].x * annCanvas.width;
-        const py=lm[8].y * annCanvas.height;
-        laser.style.left=`${px}px`;laser.style.top=`${py}px`;laser.style.display='block';
-    }else if(drawMode!=='laser'){laser.style.display='none';}
-
-    updateStatus();
-}
-
-/* ────────────────────────────────────── VOICE (FIXED: START ON CLICK) ────────────────────────────────────── */
-const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-
-function startVoiceRecognition(){
-    if(!SpeechRecognition){
-        debug('SpeechRecognition not supported');
-        speak('Voice not supported');
-        return;
-    }
-    if(speechRec) speechRec.stop();
-
-    speechRec = new SpeechRecognition();
-    speechRec.continuous = true;
-    speechRec.interimResults = false;
-    speechRec.lang = 'en-US';
-
-    speechRec.onresult = e => {
-        const cmd = e.results[e.results.length-1][0].transcript.trim().toLowerCase();
-        debug(`Voice: "${cmd}"`);
-        handleVoice(cmd);
-    };
-
-    speechRec.onerror = e => {
-        debug('Voice error: ' + e.error);
-        if(e.error === 'not-allowed') speak('Microphone access denied');
-    };
-
-    speechRec.onend = () => {
-        if(controlMode === 'voice'){
-            setTimeout(startVoiceRecognition, 500);
-        }
-    };
-
-    speechRec.start();
-    debug('Voice recognition started – say "next", "draw", etc.');
-    speak('Voice mode on');
-}
-
-/* ────────────────────────────────────── VOICE COMMANDS ────────────────────────────────────── */
-function handleVoice(c){
-    if(controlMode!=='voice') return;
-    if(c.includes('next')||c.includes('right')) nextPage();
-    else if(c.includes('previous')||c.includes('left')||c.includes('back')) prevPage();
-    else if(c.includes('draw')||c.includes('pen')) {drawMode='draw';speak('Draw');}
-    else if(c.includes('highlight')||c.includes('marker')) {drawMode='highlight';speak('Highlight');}
-    else if(c.includes('erase')||c.includes('clear')) {drawMode='erase';speak('Erase');}
-    else if(c.includes('laser')) {drawMode='laser';speak('Laser');}
-    else if(c.includes('stop')||c.includes('exit')) {drawMode='none';laser.style.display='none';speak('Stopped');}
-    else if(c.includes('clear all')) clearAnnotations();
-    else if(c.includes('mouse mode')) setControlMode('mouse');
-    else if(c.includes('gesture mode')) setControlMode('gesture');
-    else if(c.includes('voice mode')) setControlMode('voice');
-    updateStatus();
-}
-
-/* ────────────────────────────────────── SPEECH ────────────────────────────────────── */
-function speak(t){
-    const u=new SpeechSynthesisUtterance(t);
-    u.rate=1.6;
-    window.speechSynthesis.speak(u);
-}
-
-/* ────────────────────────────────────── PDF.js ────────────────────────────────────── */
-pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.6.347/pdf.worker.min.js';
-
-/* ────────────────────────────────────── INIT ────────────────────────────────────── */
-setControlMode('mouse');
-updateStatus();
-debug('App ready – Click "Voice Mode" to enable speech');
+$('#help-close').onclick = () => $('#help-modal').style.display = 'none';
+$('#help-modal').onclick = e => {
+    if (e.target === $('#help-modal')) $('#help-modal').style.display = 'none';
+};
 </script>
+
+<!-- PDF.JS -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.6.347/pdf.min.js"></script>
+<script>
+pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.6.347/pdf.worker.min.js';
+</script>
+
+<!-- DRAG & DROP -->
+<script>
+$('#upload-zone').addEventListener('click', () => $('#upload').click());
+$('#upload-zone').addEventListener('dragover', e => { e.preventDefault(); $('#upload-zone').classList.add('dragover'); });
+$('#upload-zone').addEventListener('dragleave', () => $('#upload-zone').classList.remove('dragover'));
+$('#upload-zone').addEventListener('drop', e => {
+    e.preventDefault(); $('#upload-zone').classList.remove('dragover');
+    const file = e.dataTransfer.files[0];
+    if (file && file.type === 'application/pdf') {
+        $('#upload').files = e.dataTransfer.files;
+        $('#upload').dispatchEvent(new Event('change'));
+    }
+});
+</script>
+
+<!-- MEDIAPIPE -->
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4/hands.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+
+<!-- MAIN APP -->
+<script type="module" src="./main.js"></script>
+<script src="./gesture.js"></script>
+<script src="./voice.js"></script>
+
+<!-- SAVE PDF -->
+<script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
+<script>
+$('#save-pdf').onclick = async () => {
+    if (!window.app?.pdfDoc) { toast('No PDF loaded'); return; }
+    toast('Saving PDF...');
+
+    const pdfDoc = await PDFLib.PDFDocument.create();
+    const pages = await Promise.all(
+        Array.from({ length: window.app.pdfDoc.numPages }, (_, i) =>
+            window.app.pdfDoc.getPage(i + 1)
+        )
+    );
+
+    for (let i = 0; i < pages.length; i++) {
+        const page = pages[i];
+        const { width, height } = page.getViewport({ scale: 1 });
+        const pdfPage = pdfDoc.addPage([width, height]);
+
+        // Render page
+        const canvas = document.createElement('canvas');
+        canvas.width = width; canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        await page.render({ canvasContext: ctx, viewport: page.getViewport({ scale: 1 }) }).promise;
+        const imgData = canvas.toDataURL('image/png');
+        const img = await pdfDoc.embedPng(await fetch(imgData).then(r => r.arrayBuffer()));
+        pdfPage.drawImage(img, { x: 0, y: 0, width, height });
+
+        // Add annotations
+        const annData = window.app.annCanvas.toDataURL('image/png');
+        const annImg = await pdfDoc.embedPng(await fetch(annData).then(r => r.arrayBuffer()));
+        pdfPage.drawImage(annImg, { x: 0, y: 0, width: window.app.annCanvas.width, height: window.app.annCanvas.height });
+    }
+
+    const pdfBytes = await pdfDoc.save();
+    const blob = new Blob([pdfBytes], { type: 'application/pdf' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'annotated_presentation.pdf'; a.click();
+    toast('PDF Saved Successfully!');
+};
+</script>
+
 </body>
 </html>
